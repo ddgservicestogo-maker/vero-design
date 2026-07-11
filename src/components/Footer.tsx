@@ -169,11 +169,11 @@ export default function Footer({ onOpenAdmin }: FooterProps) {
             {onOpenAdmin && (
               <button
                 onClick={onOpenAdmin}
-                className="px-4 py-3 bg-slate-900 hover:bg-slate-850 hover:text-brand-gold text-slate-400 rounded-xl border border-slate-800 transition-all flex items-center gap-2 cursor-pointer"
+                className="p-3.5 bg-slate-900 hover:bg-slate-850 hover:text-brand-gold text-slate-400 rounded-xl border border-slate-800 transition-all flex items-center justify-center cursor-pointer"
                 aria-label="Accéder à l'Espace Administrateur Véro-Design"
+                title="Espace Admin"
               >
-                <Lock className="w-3.5 h-3.5" />
-                <span>Espace Admin</span>
+                <Lock className="w-4 h-4" />
               </button>
             )}
             <button

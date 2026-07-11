@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Plus, Trash2, Edit3, Upload, X, Save, ArrowLeft, RefreshCw, 
-  Sparkles, Check, Image as ImageIcon, AlertCircle 
+  Sparkles, Check, Image as ImageIcon, AlertCircle, LogOut, ClipboardList
 } from 'lucide-react';
 import { Product } from '../types';
 import { PRODUCTS_LIST } from '../data';
@@ -15,9 +15,10 @@ interface BackofficeProps {
   products: Product[];
   onSaveProducts: (newProducts: Product[]) => void;
   onClose: () => void;
+  onLogout: () => void;
 }
 
-export default function Backoffice({ products, onSaveProducts, onClose }: BackofficeProps) {
+export default function Backoffice({ products, onSaveProducts, onClose, onLogout }: BackofficeProps) {
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [dragActive, setDragActive] = useState(false);
@@ -35,6 +36,83 @@ export default function Backoffice({ products, onSaveProducts, onClose }: Backof
   const [formDetails, setFormDetails] = useState<string[]>([]);
   const [detailInput, setDetailInput] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Dashboard & Orders State
+  const [activeTab, setActiveTab] = useState<'catalog' | 'orders'>('catalog');
+  const [orders, setOrders] = useState<any[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Fetch orders from API
+  const fetchOrders = async () => {
+    setLoadingOrders(true);
+    const token = localStorage.getItem('admin_token');
+    try {
+      const response = await fetch('/api/orders', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setOrders(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch orders:', e);
+    } finally {
+      setLoadingOrders(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'orders') {
+      fetchOrders();
+    }
+  }, [activeTab]);
+
+  const handleUpdateOrderStatus = async (id: string, newStatus: string) => {
+    const token = localStorage.getItem('admin_token');
+    try {
+      const response = await fetch('/api/orders/update-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ id, status: newStatus })
+      });
+      if (response.ok) {
+        setOrders(orders.map(o => o.id === id ? { ...o, status: newStatus } : o));
+      } else {
+        alert('Erreur lors du changement de statut de la commande.');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Erreur réseau.');
+    }
+  };
+
+  const handleDeleteOrder = async (id: string) => {
+    if (window.confirm('Voulez-vous vraiment supprimer/archiver cette commande ?')) {
+      const token = localStorage.getItem('admin_token');
+      try {
+        const response = await fetch(`/api/orders/${id}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (response.ok) {
+          setOrders(orders.filter(o => o.id !== id));
+        } else {
+          alert('Erreur lors de la suppression de la commande.');
+        }
+      } catch (e) {
+        console.error(e);
+        alert('Erreur réseau.');
+      }
+    }
+  };
 
   const categoriesList = [
     'Tenues de Cérémonie',
@@ -139,7 +217,7 @@ export default function Backoffice({ products, onSaveProducts, onClose }: Backof
     }
   };
 
-  const handleSaveProduct = (e: React.FormEvent) => {
+  const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formName.trim()) {
@@ -159,9 +237,48 @@ export default function Backoffice({ products, onSaveProducts, onClose }: Backof
       return;
     }
 
+    setIsSaving(true);
+    setErrorMsg('');
+
+    let finalImageUrl = formImage;
+    const token = localStorage.getItem('admin_token');
+
+    // Check if the image is a newly uploaded Base64 image
+    if (formImage.startsWith('data:image/')) {
+      try {
+        const uploadRes = await fetch('/api/upload', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            fileName: `${formName.toLowerCase().replace(/[^a-z0-9]/g, '-')}.jpg`,
+            data: formImage
+          })
+        });
+
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json();
+          finalImageUrl = uploadData.url;
+        } else {
+          const errData = await uploadRes.json();
+          setErrorMsg(`Erreur d'upload de l'image: ${errData.error || 'Veuillez réessayer'}`);
+          setIsSaving(false);
+          return;
+        }
+      } catch (err) {
+        console.error('Image upload failed:', err);
+        setErrorMsg("Erreur réseau lors de l'upload de l'image.");
+        setIsSaving(false);
+        return;
+      }
+    }
+
     const finalCategory = isCustomCategory ? customCategory.trim() : formCategory;
     if (!finalCategory) {
       setErrorMsg('Veuillez spécifier la catégorie.');
+      setIsSaving(false);
       return;
     }
 
@@ -179,7 +296,7 @@ export default function Backoffice({ products, onSaveProducts, onClose }: Backof
               category: finalCategory,
               price: formPrice.trim(),
               description: formDescription.trim(),
-              image: formImage,
+              image: finalImageUrl,
               badge: formBadge.trim() || undefined,
               details: finalDetails,
             }
@@ -193,7 +310,7 @@ export default function Backoffice({ products, onSaveProducts, onClose }: Backof
         category: finalCategory,
         price: formPrice.trim(),
         description: formDescription.trim(),
-        image: formImage,
+        image: finalImageUrl,
         badge: formBadge.trim() || undefined,
         details: finalDetails,
       };
@@ -203,6 +320,7 @@ export default function Backoffice({ products, onSaveProducts, onClose }: Backof
     onSaveProducts(updatedList);
     setIsFormOpen(false);
     setEditingProduct(null);
+    setIsSaving(false);
   };
 
   const handleDeleteProduct = (id: string) => {
@@ -226,7 +344,7 @@ export default function Backoffice({ products, onSaveProducts, onClose }: Backof
           <div className="flex items-center gap-4">
             <button
               onClick={onClose}
-              className="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl transition-colors cursor-pointer group flex items-center gap-2 text-sm text-slate-300"
+              className="p-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 rounded-xl transition-colors cursor-pointer group flex items-center gap-2 text-sm text-slate-300"
             >
               <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
               <span>Voir le site</span>
@@ -251,129 +369,270 @@ export default function Backoffice({ products, onSaveProducts, onClose }: Backof
               <RefreshCw className="w-4 h-4" />
               <span className="hidden sm:inline">Réinitialiser</span>
             </button>
+            {activeTab === 'catalog' && (
+              <button
+                onClick={handleOpenAddForm}
+                className="px-5 py-2.5 bg-brand-pink hover:bg-brand-pink-dark text-white rounded-xl text-xs sm:text-sm font-bold transition-all shadow-md shadow-brand-pink/20 flex items-center gap-2 hover:scale-[1.02] cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Ajouter une Création</span>
+              </button>
+            )}
             <button
-              onClick={handleOpenAddForm}
-              className="px-5 py-2.5 bg-brand-pink hover:bg-brand-pink-dark text-white rounded-xl text-xs sm:text-sm font-bold transition-all shadow-md shadow-brand-pink/20 flex items-center gap-2 hover:scale-[1.02] cursor-pointer"
+              onClick={onLogout}
+              className="px-4 py-2.5 bg-red-950/40 hover:bg-red-900/60 border border-red-900/30 hover:border-red-900/50 rounded-xl text-xs sm:text-sm text-red-200 font-medium transition-all flex items-center gap-2 cursor-pointer"
+              title="Se déconnecter"
             >
-              <Plus className="w-4 h-4" />
-              <span>Ajouter une Création</span>
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline">Déconnexion</span>
             </button>
           </div>
         </div>
       </header>
-
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10">
         
-        {/* Helper Tip */}
-        <div className="p-6 bg-slate-950/60 rounded-3xl border border-slate-800/80 mb-10 flex items-start gap-4 max-w-4xl">
-          <div className="p-3 bg-brand-pink/10 rounded-2xl text-brand-pink shrink-0">
-            <Sparkles className="w-6 h-6 text-brand-gold" />
-          </div>
-          <div className="space-y-1.5">
-            <h3 className="font-bold text-slate-200">Bienvenue Véro !</h3>
-            <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-              Ajoutez vos nouvelles robes, jupes, chouchous ou bonnets. Vous pouvez uploader des photos directement depuis votre galerie d’appareil photo. Tous les prix, badges ("Tendance", "Populaire") et listes de détails peuvent être gérés de façon simple ci-dessous.
-            </p>
-          </div>
+        {/* Navigation Tabs */}
+        <div className="flex gap-6 border-b border-slate-850 mb-8 pb-px">
+          <button
+            onClick={() => setActiveTab('catalog')}
+            className={`pb-4 px-2 font-serif text-base sm:text-lg font-bold transition-all relative cursor-pointer ${
+              activeTab === 'catalog'
+                ? 'text-white border-b-2 border-brand-pink'
+                : 'text-slate-450 hover:text-slate-200'
+            }`}
+          >
+            Gestion du Catalogue
+          </button>
+          <button
+            onClick={() => setActiveTab('orders')}
+            className={`pb-4 px-2 font-serif text-base sm:text-lg font-bold transition-all relative cursor-pointer flex items-center gap-2 ${
+              activeTab === 'orders'
+                ? 'text-white border-b-2 border-brand-pink'
+                : 'text-slate-450 hover:text-slate-200'
+            }`}
+          >
+            <ClipboardList className="w-4 h-4" />
+            <span>Suivi des Commandes</span>
+          </button>
         </div>
 
-        {/* Products Grid/List Table */}
-        <div className="bg-slate-950 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl">
-          <div className="p-6 border-b border-slate-800 bg-slate-950/40 flex justify-between items-center">
-            <h2 className="font-serif text-lg sm:text-xl font-bold text-white">
-              Liste des créations actives ({products.length})
-            </h2>
-          </div>
+        {activeTab === 'orders' ? (
+          <div className="bg-slate-950 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl animate-fade-in">
+            <div className="p-6 border-b border-slate-800 bg-slate-950/40 flex justify-between items-center">
+              <h2 className="font-serif text-lg sm:text-xl font-bold text-white">
+                Liste des commandes reçues ({orders.length})
+              </h2>
+              <button
+                onClick={fetchOrders}
+                disabled={loadingOrders}
+                className="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-slate-300 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${loadingOrders ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
 
-          {products.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[700px]">
-                <thead>
-                  <tr className="border-b border-slate-800 bg-slate-900/40 text-xs text-slate-400 uppercase font-mono tracking-wider">
-                    <th className="py-4 px-6">Image / Miniature</th>
-                    <th className="py-4 px-6">Nom de la Création</th>
-                    <th className="py-4 px-6">Catégorie</th>
-                    <th className="py-4 px-6">Prix</th>
-                    <th className="py-4 px-6">Badge</th>
-                    <th className="py-4 px-6 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/50">
-                  {products.map((product) => (
-                    <tr key={product.id} className="hover:bg-slate-900/30 transition-colors">
-                      {/* Image Thumbnail */}
-                      <td className="py-4 px-6">
-                        <div className="w-16 h-12 rounded-lg overflow-hidden bg-slate-800 border border-slate-700 shrink-0">
-                          <img 
-                            src={product.image} 
-                            alt={product.name}
-                            className="w-full h-full object-cover" 
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&q=80&w=200';
-                            }}
-                          />
-                        </div>
-                      </td>
-                      {/* Product Name */}
-                      <td className="py-4 px-6 font-medium text-white max-w-xs truncate" title={product.name}>
-                        {product.name}
-                      </td>
-                      {/* Category */}
-                      <td className="py-4 px-6">
-                        <span className="px-2.5 py-1 bg-slate-900 border border-slate-800 text-slate-300 rounded-lg text-xs font-semibold">
-                          {product.category}
-                        </span>
-                      </td>
-                      {/* Price */}
-                      <td className="py-4 px-6 text-brand-gold-light font-bold text-sm">
-                        {product.price}
-                      </td>
-                      {/* Badge */}
-                      <td className="py-4 px-6">
-                        {product.badge ? (
-                          <span className="px-2 py-0.5 bg-brand-pink/20 border border-brand-pink/30 text-brand-pink text-[10px] uppercase tracking-wider font-bold rounded-full">
-                            {product.badge}
+            {loadingOrders ? (
+              <div className="p-12 text-center text-slate-500">
+                <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4 text-brand-pink" />
+                <p>Chargement des commandes...</p>
+              </div>
+            ) : orders.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[850px]">
+                  <thead>
+                    <tr className="border-b border-slate-800 bg-slate-900/40 text-xs text-slate-400 uppercase font-mono tracking-wider">
+                      <th className="py-4 px-6">Date / Heure</th>
+                      <th className="py-4 px-6">Client</th>
+                      <th className="py-4 px-6">Prestation</th>
+                      <th className="py-4 px-6">Tissu</th>
+                      <th className="py-4 px-6">Projet Couture</th>
+                      <th className="py-4 px-6">Statut</th>
+                      <th className="py-4 px-6 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/50">
+                    {orders.map((order) => (
+                      <tr key={order.id} className="hover:bg-slate-900/30 transition-colors align-top">
+                        <td className="py-4 px-6 text-xs text-slate-400 font-mono">
+                          {new Date(order.date).toLocaleDateString('fr-FR', {
+                            day: 'numeric',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </td>
+                        <td className="py-4 px-6 font-semibold text-white">
+                          {order.clientName}
+                        </td>
+                        <td className="py-4 px-6">
+                          <span className="px-2.5 py-1 bg-brand-pink/10 border border-brand-pink/20 text-brand-pink rounded-lg text-xs font-semibold">
+                            {order.serviceTitle}
                           </span>
-                        ) : (
-                          <span className="text-slate-600 text-xs">-</span>
-                        )}
-                      </td>
-                      {/* Actions */}
-                      <td className="py-4 px-6 text-right">
-                        <div className="flex justify-end gap-2.5">
-                          <button
-                            onClick={() => handleOpenEditForm(product)}
-                            className="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-300 hover:text-brand-gold transition-colors cursor-pointer"
-                            title="Modifier"
+                        </td>
+                        <td className="py-4 px-6 text-xs">
+                          {order.fabricOption === 'vero' ? (
+                            <span className="text-brand-gold bg-brand-gold/10 border border-brand-gold/20 px-2.5 py-1 rounded-lg text-xs font-semibold">Fourni atelier</span>
+                          ) : (
+                            <span className="text-slate-450 bg-slate-900 border border-slate-850 px-2.5 py-1 rounded-lg text-xs font-medium">Fourni client</span>
+                          )}
+                        </td>
+                        <td className="py-4 px-6 text-xs sm:text-sm text-slate-300 max-w-sm whitespace-pre-wrap leading-relaxed">
+                          {order.details}
+                        </td>
+                        <td className="py-4 px-6">
+                          <select
+                            value={order.status}
+                            onChange={(e) => handleUpdateOrderStatus(order.id, e.target.value)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold border focus:outline-none transition-colors cursor-pointer ${
+                              order.status === 'Nouveau'
+                                ? 'bg-blue-950/40 text-blue-400 border-blue-900/40 focus:border-blue-500'
+                                : order.status === 'En cours'
+                                ? 'bg-amber-950/40 text-amber-400 border-amber-900/40 focus:border-amber-500'
+                                : order.status === 'Terminé'
+                                ? 'bg-emerald-950/40 text-emerald-400 border-emerald-900/40 focus:border-emerald-500'
+                                : 'bg-slate-900 text-slate-400 border-slate-800 focus:border-slate-500'
+                            }`}
                           >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
+                            <option value="Nouveau">Nouveau</option>
+                            <option value="En cours">En cours</option>
+                            <option value="Terminé">Terminé</option>
+                            <option value="Archivé">Archivé</option>
+                          </select>
+                        </td>
+                        <td className="py-4 px-6 text-right">
                           <button
-                            onClick={() => handleDeleteProduct(product.id)}
+                            onClick={() => handleDeleteOrder(order.id)}
                             className="p-2 bg-slate-900 hover:bg-red-950 border border-slate-800 hover:border-red-900/50 rounded-lg text-slate-400 hover:text-red-400 transition-colors cursor-pointer"
                             title="Supprimer"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="p-12 text-center text-slate-500">
+                <p className="text-base">Aucune commande reçue pour le moment.</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Helper Tip */}
+            <div className="p-6 bg-slate-950/60 rounded-3xl border border-slate-800/80 mb-10 flex items-start gap-4 max-w-4xl">
+              <div className="p-3 bg-brand-pink/10 rounded-2xl text-brand-pink shrink-0">
+                <Sparkles className="w-6 h-6 text-brand-gold" />
+              </div>
+              <div className="space-y-1.5">
+                <h3 className="font-bold text-slate-200">Bienvenue Véro !</h3>
+                <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+                  Ajoutez vos nouvelles robes, jupes, chouchous ou bonnets. Vous pouvez uploader des photos directement depuis votre galerie d’appareil photo. Tous les prix, badges ("Tendance", "Populaire") et listes de détails peuvent être gérés de façon simple ci-dessous.
+                </p>
+              </div>
             </div>
-          ) : (
-            <div className="p-12 text-center text-slate-500">
-              <p className="text-base">Aucun produit dans le catalogue actuellement.</p>
-              <button
-                onClick={handleOpenAddForm}
-                className="mt-4 text-sm font-bold text-brand-pink hover:underline"
-              >
-                Créer la première fiche produit
-              </button>
+
+            {/* Products Grid/List Table */}
+            <div className="bg-slate-950 rounded-3xl border border-slate-800 overflow-hidden shadow-2xl">
+              <div className="p-6 border-b border-slate-800 bg-slate-950/40 flex justify-between items-center">
+                <h2 className="font-serif text-lg sm:text-xl font-bold text-white">
+                  Liste des créations actives ({products.length})
+                </h2>
+              </div>
+
+              {products.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[700px]">
+                    <thead>
+                      <tr className="border-b border-slate-800 bg-slate-900/40 text-xs text-slate-400 uppercase font-mono tracking-wider">
+                        <th className="py-4 px-6">Image / Miniature</th>
+                        <th className="py-4 px-6">Nom de la Création</th>
+                        <th className="py-4 px-6">Catégorie</th>
+                        <th className="py-4 px-6">Prix</th>
+                        <th className="py-4 px-6">Badge</th>
+                        <th className="py-4 px-6 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/50">
+                      {products.map((product) => (
+                        <tr key={product.id} className="hover:bg-slate-900/30 transition-colors">
+                          {/* Image Thumbnail */}
+                          <td className="py-4 px-6">
+                            <div className="w-16 h-12 rounded-lg overflow-hidden bg-slate-800 border border-slate-700 shrink-0">
+                              <img 
+                                src={product.image} 
+                                alt={product.name}
+                                className="w-full h-full object-cover" 
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&q=80&w=200';
+                                }}
+                              />
+                            </div>
+                          </td>
+                          {/* Product Name */}
+                          <td className="py-4 px-6 font-medium text-white max-w-xs truncate" title={product.name}>
+                            {product.name}
+                          </td>
+                          {/* Category */}
+                          <td className="py-4 px-6">
+                            <span className="px-2.5 py-1 bg-slate-900 border border-slate-800 text-slate-300 rounded-lg text-xs font-semibold">
+                              {product.category}
+                            </span>
+                          </td>
+                          {/* Price */}
+                          <td className="py-4 px-6 text-brand-gold-light font-bold text-sm">
+                            {product.price}
+                          </td>
+                          {/* Badge */}
+                          <td className="py-4 px-6">
+                            {product.badge ? (
+                              <span className="px-2 py-0.5 bg-brand-pink/20 border border-brand-pink/30 text-brand-pink text-[10px] uppercase tracking-wider font-bold rounded-full">
+                                {product.badge}
+                              </span>
+                            ) : (
+                              <span className="text-slate-600 text-xs">-</span>
+                            )}
+                          </td>
+                          {/* Actions */}
+                          <td className="py-4 px-6 text-right">
+                            <div className="flex justify-end gap-2.5">
+                              <button
+                                onClick={() => handleOpenEditForm(product)}
+                                className="p-2 bg-slate-900 hover:bg-slate-850 border border-slate-800 rounded-lg text-slate-300 hover:text-brand-gold transition-colors cursor-pointer"
+                                title="Modifier"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteProduct(product.id)}
+                                className="p-2 bg-slate-900 hover:bg-red-950 border border-slate-800 hover:border-red-900/50 rounded-lg text-slate-400 hover:text-red-400 transition-colors cursor-pointer"
+                                title="Supprimer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="p-12 text-center text-slate-500">
+                  <p className="text-base">Aucun produit dans le catalogue actuellement.</p>
+                  <button
+                    onClick={handleOpenAddForm}
+                    className="mt-4 text-sm font-bold text-brand-pink hover:underline"
+                  >
+                    Créer la première fiche produit
+                  </button>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
       </main>
 
       {/* Form Sidebar / Modal (Add and Edit) */}
@@ -649,10 +908,20 @@ export default function Backoffice({ products, onSaveProducts, onClose }: Backof
                 <div className="flex gap-3 pt-4 border-t border-slate-850">
                   <button
                     type="submit"
-                    className="flex-grow py-3.5 bg-brand-pink hover:bg-brand-pink-dark text-white rounded-xl text-sm font-bold transition-all shadow-md shadow-brand-pink/20 flex items-center justify-center gap-2 hover:scale-[1.01] cursor-pointer"
+                    disabled={isSaving}
+                    className="flex-grow py-3.5 bg-brand-pink hover:bg-brand-pink-dark disabled:bg-slate-700 text-white rounded-xl text-sm font-bold transition-all shadow-md shadow-brand-pink/20 flex items-center justify-center gap-2 hover:scale-[1.01] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Save className="w-4 h-4" />
-                    <span>Enregistrer dans le catalogue</span>
+                    {isSaving ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Sauvegarde en cours...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4" />
+                        <span>Enregistrer dans le catalogue</span>
+                      </>
+                    )}
                   </button>
                   <button
                     type="button"

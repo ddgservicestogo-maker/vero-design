@@ -21,23 +21,60 @@ export default function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
   const [passwordInput, setPasswordInput] = useState<string>('');
   const [loginError, setLoginError] = useState<string>('');
+  const [products, setProducts] = useState<Product[]>([]);
 
-  // Loaded dynamically from localStorage to keep Véro's additions persistent
-  const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('vero_catalog');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error('Failed to parse vero_catalog from localStorage:', e);
-      }
+  // Fetch products from API on mount
+  useEffect(() => {
+    fetch('/api/products')
+      .then((res) => res.json())
+      .then((data) => {
+        setProducts(data);
+      })
+      .catch((err) => {
+        console.error('Failed to fetch products:', err);
+        setProducts(PRODUCTS_LIST);
+      });
+
+    // Check token if already authenticated
+    const token = localStorage.getItem('admin_token');
+    if (token) {
+      fetch('/api/verify-token', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      .then(res => {
+        if (res.ok) {
+          // session valid, keep it but do not redirect automatically to give clean homepage UX
+        } else {
+          localStorage.removeItem('admin_token');
+        }
+      })
+      .catch(() => {});
     }
-    return PRODUCTS_LIST;
-  });
+  }, []);
 
-  const handleSaveProducts = (newProducts: Product[]) => {
-    setProducts(newProducts);
-    localStorage.setItem('vero_catalog', JSON.stringify(newProducts));
+  const handleSaveProducts = async (newProducts: Product[]) => {
+    const token = localStorage.getItem('admin_token');
+    try {
+      const response = await fetch('/api/products', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(newProducts)
+      });
+      if (response.ok) {
+        setProducts(newProducts);
+      } else {
+        const data = await response.json();
+        alert(`Erreur de sauvegarde: ${data.error || 'Session expirée'}`);
+      }
+    } catch (e) {
+      console.error('Failed to save products:', e);
+      alert('Erreur réseau lors de la mise à jour du catalogue.');
+    }
   };
 
   const handleSelectServiceForCustomOrder = (serviceId: string) => {
@@ -59,19 +96,60 @@ export default function App() {
     }
   };
 
-  const handleAdminLoginSubmit = (e: React.FormEvent) => {
+  const handleAdminLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (passwordInput === 'vero2026') {
-      setIsAdminView(true);
-      setIsLoginModalOpen(false);
-      setPasswordInput('');
-      setLoginError('');
+    setLoginError('');
+    try {
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ password: passwordInput })
+      });
       
-      // Scroll to top of backoffice
-      window.scrollTo({ top: 0 });
-    } else {
-      setLoginError('Code d’accès incorrect. Veuillez réessayer.');
+      const data = await response.json();
+      if (response.ok && data.success) {
+        localStorage.setItem('admin_token', data.token);
+        setIsAdminView(true);
+        setIsLoginModalOpen(false);
+        setPasswordInput('');
+        window.scrollTo({ top: 0 });
+      } else {
+        setLoginError(data.error || 'Code d’accès incorrect. Veuillez réessayer.');
+      }
+    } catch (e) {
+      console.error('Login error:', e);
+      setLoginError('Erreur de connexion au serveur.');
     }
+  };
+
+  const handleOpenAdmin = () => {
+    const token = localStorage.getItem('admin_token');
+    if (token) {
+      fetch('/api/verify-token', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      .then(res => {
+        if (res.ok) {
+          setIsAdminView(true);
+          window.scrollTo({ top: 0 });
+        } else {
+          localStorage.removeItem('admin_token');
+          setIsLoginModalOpen(true);
+        }
+      })
+      .catch(() => {
+        setIsLoginModalOpen(true);
+      });
+    } else {
+      setIsLoginModalOpen(true);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('admin_token');
+    setIsAdminView(false);
   };
 
   if (isAdminView) {
@@ -80,6 +158,7 @@ export default function App() {
         products={products}
         onSaveProducts={handleSaveProducts}
         onClose={() => setIsAdminView(false)}
+        onLogout={handleLogout}
       />
     );
   }
@@ -105,7 +184,7 @@ export default function App() {
       />
 
       {/* Comprehensive Footer Section containing contact details, hours, and maps */}
-      <Footer onOpenAdmin={() => setIsLoginModalOpen(true)} />
+      <Footer onOpenAdmin={handleOpenAdmin} />
 
       {/* Floating Action WhatsApp Badge for instant engagement */}
       <div className="fixed bottom-6 right-6 z-40 group">
@@ -164,7 +243,7 @@ export default function App() {
                 <input
                   type="password"
                   required
-                  placeholder="Saisissez le code d'accès (vero2026)"
+                  placeholder="Saisissez votre code d'accès"
                   value={passwordInput}
                   onChange={(e) => setPasswordInput(e.target.value)}
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 focus:border-brand-pink focus:outline-none focus:ring-1 focus:ring-brand-pink text-slate-800 rounded-xl text-sm transition-colors"
@@ -185,10 +264,6 @@ export default function App() {
                 Débloquer l'Espace Admin
               </button>
             </form>
-
-            <p className="text-[10px] text-center text-slate-400">
-              💡 Code d'accès de démonstration : <strong className="text-brand-pink">vero2026</strong>
-            </p>
           </div>
         </div>
       )}

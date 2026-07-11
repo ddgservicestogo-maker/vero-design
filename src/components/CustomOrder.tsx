@@ -21,7 +21,7 @@ export default function CustomOrder({ selectedServiceId, onServiceChange }: Cust
   // Selected service details
   const currentService = SERVICES_LIST.find((s) => s.id === selectedServiceId) || SERVICES_LIST[0];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!fullName.trim()) {
@@ -35,8 +35,31 @@ export default function CustomOrder({ selectedServiceId, onServiceChange }: Cust
     }
 
     setErrorMessage('');
+
+    try {
+      // Persist the order to local database
+      await fetch('/api/orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          clientName: fullName.trim(),
+          serviceTitle: currentService.title,
+          fabricOption,
+          details: details.trim()
+        })
+      });
+    } catch (err) {
+      console.error('Failed to persist order to local database:', err);
+    }
+
     const link = getCustomOrderWhatsAppLink(currentService.title, fullName, fabricOption, details);
     window.open(link, '_blank', 'noopener,noreferrer');
+
+    // Reset inputs
+    setFullName('');
+    setDetails('');
   };
 
   return (
