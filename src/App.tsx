@@ -169,7 +169,7 @@ export default function App() {
       <Navbar />
 
       {/* Hero Showcase with elegant branding */}
-      <Hero />
+      <Hero showcaseProduct={products[0]} />
 
       {/* Interactive Core Services Section (from the flyer) */}
       <Services onSelectServiceForCustomOrder={handleSelectServiceForCustomOrder} />

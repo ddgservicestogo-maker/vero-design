@@ -5,8 +5,13 @@
 
 import { motion } from 'motion/react';
 import { ShoppingBag, Sparkles, MapPin, Phone, Scissors } from 'lucide-react';
+import { Product } from '../types';
 
-export default function Hero() {
+interface HeroProps {
+  showcaseProduct?: Product;
+}
+
+export default function Hero({ showcaseProduct }: HeroProps) {
   const scrollToSection = (id: string) => {
     const element = document.getElementById(id);
     if (element) {
@@ -140,8 +145,8 @@ export default function Hero() {
               {/* Card Image */}
               <div className="w-full h-full rounded-2xl overflow-hidden relative">
                 <img
-                  src="https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&q=80&w=600"
-                  alt="Robe de Cérémonie Véro-Design"
+                  src={showcaseProduct?.image || "https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&q=80&w=600"}
+                  alt={showcaseProduct?.name || "Robe de Cérémonie Véro-Design"}
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                   referrerPolicy="no-referrer"
                 />
@@ -149,16 +154,20 @@ export default function Hero() {
                 
                 {/* Float elements */}
                 <div className="absolute top-4 left-4 bg-brand-pink text-white text-[11px] font-bold px-3 py-1.5 rounded-full uppercase tracking-wider shadow-md">
-                  Robe de Cérémonie Wax
+                  {showcaseProduct?.category || "Robe de Cérémonie Wax"}
                 </div>
 
                 <div className="absolute bottom-4 left-4 right-4 bg-slate-950/80 backdrop-blur-md p-4 rounded-xl border border-white/10">
                   <div className="flex justify-between items-start mb-1">
-                    <h3 className="font-serif text-base font-bold text-white">Robe Impériale</h3>
-                    <span className="font-mono text-brand-gold font-bold text-xs bg-brand-gold/10 px-2 py-0.5 rounded">Dès 25k FCFA</span>
+                    <h3 className="font-serif text-base font-bold text-white">
+                      {showcaseProduct?.name || "Robe Impériale"}
+                    </h3>
+                    <span className="font-mono text-brand-gold font-bold text-xs bg-brand-gold/10 px-2 py-0.5 rounded">
+                      {showcaseProduct?.price || "Dès 25k FCFA"}
+                    </span>
                   </div>
                   <p className="text-xs text-slate-300">
-                    Motifs traditionnels wax de cérémonie d'une élégance intemporelle.
+                    {showcaseProduct?.description || "Motifs traditionnels wax de cérémonie d'une élégance intemporelle."}
                   </p>
                 </div>
               </div>
