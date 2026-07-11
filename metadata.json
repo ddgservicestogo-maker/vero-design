@@ -1,0 +1,6 @@
+{
+  "name": "Véro-Design Couture",
+  "description": "Atelier de haute couture et création sur-mesure à Kpogan. Découvrez notre catalogue de tenues de cérémonie, prêt-à-porter, accessoires textiles, et commandez directement via WhatsApp.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
